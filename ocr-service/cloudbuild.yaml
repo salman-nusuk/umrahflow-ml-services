@@ -12,6 +12,11 @@ steps:
       - 'gcr.io/$PROJECT_ID/ocr-service:latest'
       - '.'
 
+  # Push both tags BEFORE deploy (the `images:` field only pushes after all
+  # steps finish, which is too late for the deploy step below).
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/ocr-service']
+
   # Deploy to Cloud Run (pin to the immutable SHA tag)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
@@ -53,11 +58,6 @@ steps:
               "gcr.io/$PROJECT_ID/ocr-service@$digest" \
               --delete-tags --quiet || true
           done
-
-# Record the produced images with Cloud Build (also pushes them)
-images:
-  - 'gcr.io/$PROJECT_ID/ocr-service:$SHORT_SHA'
-  - 'gcr.io/$PROJECT_ID/ocr-service:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY  # or NONE, depending on your needs
