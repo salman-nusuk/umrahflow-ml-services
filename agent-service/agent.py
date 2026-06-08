@@ -129,7 +129,7 @@ def _read_pool() -> ConnectionPool:
         _READ_POOL = ConnectionPool(
             conninfo=DATABASE_URL,
             min_size=1,
-            max_size=10,
+            max_size=5,
             kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": psycopg.rows.dict_row},
         )
     return _READ_POOL

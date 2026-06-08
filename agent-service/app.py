@@ -8,6 +8,10 @@ that have unread inbound messages quiet for at least DEBOUNCE_S — when one is
 found it processes the entire burst as a single LangGraph turn. This collapses
 WhatsApp 5-image albums (5 separate webhooks) into one consolidated reply.
 """
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
+
 import concurrent.futures
 import contextlib
 import hashlib
@@ -22,17 +26,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # load project-root .env (one level up from this service folder)
-ENV_PATH = os.environ.get(
-    "UMRAHFLOW_ENV_PATH",
-    os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".env")),
-)
-if os.path.exists(ENV_PATH):
-    for line in open(ENV_PATH):
-        line = line.strip()
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            v = v.strip().strip('"').strip("'")
-            os.environ.setdefault(k, v)
+
 
 from agent import build_agent
 from tools import _conn, reset_send_count  # reuse helpers

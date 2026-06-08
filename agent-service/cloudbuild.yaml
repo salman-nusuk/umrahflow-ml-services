@@ -1,0 +1,65 @@
+steps:
+  # Build the Docker image, tagging it with both the commit SHA and `latest`
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/agent-service:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/agent-service:latest'
+      - '.'
+
+  # Deploy to Cloud Run (pin to the immutable SHA tag)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'agent-service'
+      - '--image=gcr.io/$PROJECT_ID/agent-service:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--cpu=1'                 # ✅ 1, 2, 4, or 8
+      - '--memory=2Gi'           # ✅ e.g. 512Mi, 1Gi, 2Gi, 4Gi
+      - '--concurrency=80'
+      # This service runs a background drain/janitor loop, not just request/response.
+      # Keep exactly ONE instance so only one drain loop is active, and keep the CPU
+      # always allocated so the loop keeps polling between HTTP requests.
+      - '--min-instances=1'
+      - '--max-instances=1'
+      - '--no-cpu-throttling'
+      # Non-secret config (in-process turn worker pool size)
+      - '--set-env-vars'
+      - 'AGENT_TURN_WORKERS=4,TWILIO_WHATSAPP_NUMBER=whatsapp:+16627075006'
+      # Secrets from Secret Manager (must match the keys the code reads)
+      - '--set-secrets'
+      - 'DATABASE_URL=DATABASE_URL:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,TWILIO_ACCOUNT_SID=TWILIO_ACCOUNT_SID:latest,TWILIO_AUTH_TOKEN=TWILIO_AUTH_TOKEN:latest'
+
+  # Prune leftover untagged image digests so registry history doesn't pile up
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        echo "Pruning untagged images for gcr.io/$PROJECT_ID/agent-service ..."
+        gcloud artifacts docker images list \
+          gcr.io/$PROJECT_ID/agent-service \
+          --include-tags \
+          --filter='-tags:*' \
+          --format='value(version)' | while read -r digest; do
+            [ -z "$digest" ] && continue
+            echo "Deleting untagged digest: $digest"
+            gcloud artifacts docker images delete \
+              "gcr.io/$PROJECT_ID/agent-service@$digest" \
+              --delete-tags --quiet || true
+          done
+
+# Record the produced images with Cloud Build (also pushes them)
+images:
+  - 'gcr.io/$PROJECT_ID/agent-service:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/agent-service:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY  # or NONE, depending on your needs
