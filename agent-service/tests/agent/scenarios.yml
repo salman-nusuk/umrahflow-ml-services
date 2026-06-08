@@ -1,0 +1,851 @@
+# Scenario inventory. Run subsets via --tag or --scenario.
+# Fixture paths under `media:` are relative to tests/agent/fixtures/ — drop
+# files there or symlink your AGOG/, BAAB E KABA/ folders. See fixtures/README.md.
+
+# ============================================================ BURST ROUTING
+
+- id: single-voucher-happy-path
+  tags: [burst-routing, happy-path]
+  description: One voucher + matching passports in a single burst.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+        - "agent_A/p4_QQ4912891_shahnaz.jpg"
+        - "agent_A/p5_TK5163901_mehnaz.jpg"
+  expect:
+    db:
+      passports_count: 5
+      passports_flagged: 0
+      passports_drafts: 0
+    reply:
+      count: 1
+      language: english
+      must_not_contain: ["—", "ho gaye", "ke against", "saved 5 of 5", "flagged for review"]
+      tone_judge: "Pakistani B2B WhatsApp tone (terse-but-polite is fine, doesn't need warmth/pleasantries), English, no em-dashes (—), no emojis, mentions one UB number (UB-NNNNNN format with hyphen is fine). Confirms passports were saved."
+    trace:
+      tool_calls_max: 30
+      send_whatsapp_count: 1
+    latency_ms_max: 90000
+
+- id: multi-voucher-burst-routing
+  tags: [burst-routing]
+  description: 2 vouchers + 10 passports; each passport routes to its UB.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_B/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+        - "agent_A/p4_QQ4912891_shahnaz.jpg"
+        - "agent_A/p5_TK5163901_mehnaz.jpg"
+        - "agent_B/p1_AK5099013_anwar.jpg"
+        - "agent_B/p2_SQ8458391_dua.jpg"
+        - "agent_B/p3_BL5931731_ayesha.jpg"
+        - "agent_B/p4_EM6311161_rimsha.jpg"
+        - "agent_B/p5_QW3959892_naseem.jpg"
+  expect:
+    db:
+      passports_count: 10
+    reply:
+      count: 1
+      language: english
+      tone_judge: "mentions BOTH UB numbers, English, no em-dashes (—), no Roman Urdu (UB-NNNNNN format with hyphen is fine)"
+    trace:
+      send_whatsapp_count: 1
+      tool_calls_max: 60
+    latency_ms_max: 120000
+
+- id: voucher-then-passports-30s-later
+  tags: [burst-routing, split]
+  description: Voucher first, then passports after 30s; scan_drafts attaches.
+  inputs:
+    - text: ""
+      media: ["agent_A/voucher.pdf"]
+    - delay_ms: 30000
+    - text: ""
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+  expect:
+    db:
+      passports_count: 3
+    reply:
+      count: 2
+      language: english
+    trace:
+      send_whatsapp_count: 1   # last turn
+
+- id: passports-only-no-voucher
+  tags: [burst-routing, drafts]
+  description: Passports without any voucher → all become drafts.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+  expect:
+    db:
+      passports_count: 0
+      passports_drafts: 3
+    reply:
+      count: 1
+      language: english
+      tone_judge: "asks for the voucher, English, friendly"
+
+- id: single-passport-no-voucher
+  tags: [burst-routing, drafts]
+  description: One passport, no voucher.
+  inputs:
+    - text: ""
+      media: ["agent_A/p1_FY1755541_mahboob.jpg"]
+  expect:
+    db:
+      passports_drafts: 1
+    reply:
+      count: 1
+      tone_judge: "asks for voucher number, mentions the passport holder by name OR generically; English"
+
+- id: pdf-voucher
+  tags: [burst-routing, pdf]
+  description: PDF voucher only.
+  inputs:
+    - text: ""
+      media: ["agent_A/voucher.pdf"]
+  expect:
+    reply:
+      count: 1
+      tone_judge: "acknowledges UB, asks for passports when ready, English"
+
+- id: pdf-with-multi-passports
+  tags: [burst-routing, pdf]
+  description: PDF with multiple passport pages.
+  inputs:
+    - text: ""
+      media: ["AGOG/multi-passports.pdf"]
+  expect:
+    db:
+      passports_drafts: 0   # all should match if a voucher is preloaded; otherwise drafts
+    reply:
+      count: 1
+
+- id: mixed-jpg-pdf
+  tags: [burst-routing]
+  description: Mix of JPG passports + PDF voucher.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+  expect:
+    reply:
+      count: 1
+
+- id: partial-unreadable-burst
+  tags: [burst-routing, robustness]
+  description: 3 valid + 1 corrupt JPG; reply should celebrate saves, not apologize.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+        - "corrupt/blank.jpg"
+  expect:
+    reply:
+      count: 1
+      must_not_contain: ["couldn't read", "could not read", "resend"]
+      tone_judge: "celebrates the saves, does NOT apologize for unreadable items, English"
+
+- id: voucher-with-empty-expected_mutamers
+  tags: [burst-routing]
+  description: Voucher OCR yields no expected_mutamers; passports route via DB match.
+  inputs:
+    - text: ""
+      media:
+        - "edge/voucher-no-mutamers.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+  expect:
+    reply:
+      count: 1
+
+- id: pdf-mixed-voucher-and-passport-pages
+  tags: [burst-routing, pdf]
+  description: One PDF that contains both a voucher page and passport pages.
+  inputs:
+    - text: ""
+      media: ["AGOG/combined-voucher-and-passports.pdf"]
+  expect:
+    reply:
+      count: 1
+
+- id: single-voucher-stray-passport
+  tags: [burst-routing, regression]
+  description: Voucher mutamers=[P1,P2,P3]; burst has P1+P2+P3+P4. P4 must NOT auto-attach.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+        - "stray/unknown_passport.jpg"
+  expect:
+    db:
+      passports_count: 3        # only the 3 expected ones on the UB
+      passports_drafts: 1       # the stray lands as a draft (or multi_match)
+    reply:
+      count: 1
+
+- id: multi-voucher-passport-on-both
+  tags: [burst-routing, escalation]
+  description: A passport listed on TWO open vouchers → multi_match + requires_l1.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_B/voucher.pdf"
+        - "shared/shared_passport.jpg"
+  expect:
+    trace:
+      requires_l1_count: 1
+    reply:
+      count: 1
+      tone_judge: "asks which booking the passport is for, neutral, English"
+
+- id: cross-agent-passport
+  tags: [cross-agent, escalation]
+  description: Agent B submits a passport already on Agent A's voucher.
+  sub_agent: __test_agent_B__
+  setup:
+    sql: |
+      -- Agent A voucher pre-seeded with passport AB1234567
+      INSERT INTO "SubAgent" (id, name, "contactName", phone, city, status, "createdAt")
+        VALUES ('tsa_xagent_A', 'xagent_A', 'Test', '+92xagentA', 'Karachi', 'ACTIVE', NOW())
+        ON CONFLICT (id) DO NOTHING;
+      INSERT INTO "Voucher" (id, uid, "ubNumber", "subAgentId", status, pool, "createdAt", "updatedAt")
+        VALUES ('tv_xagent_A', 'uid_tv_xagent_A', 'UB-T999001', 'tsa_xagent_A', 'PENDING_REVIEW', 'UB', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING;
+      INSERT INTO "Passport"
+        (id, "passportNumber", "voucherId", "screeningStatus", "createdAt", "updatedAt")
+        VALUES ('tp_xagent_A_AB1234567', 'AB1234567', 'tv_xagent_A', 'CLEAN', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING;
+    cleanup_sql: |
+      DELETE FROM "Passport" WHERE id='tp_xagent_A_AB1234567';
+      DELETE FROM "Voucher" WHERE id='tv_xagent_A';
+      DELETE FROM "SubAgent" WHERE id='tsa_xagent_A';
+  inputs:
+    - text: ""
+      media: ["cross-agent/AB1234567.jpg"]
+  expect:
+    trace:
+      requires_l1_count: 1
+
+- id: cross-agent-voucher-hijack
+  tags: [cross-agent, escalation]
+  description: Agent B re-upserts a UB owned by Agent A. A's ownership preserved.
+  sub_agent: __test_agent_B__
+  setup:
+    sql: |
+      INSERT INTO "SubAgent" (id, name, "contactName", phone, city, status, "createdAt")
+        VALUES ('tsa_xagent_A', 'xagent_A', 'Test', '+92xagentA', 'Karachi', 'ACTIVE', NOW())
+        ON CONFLICT (id) DO NOTHING;
+      INSERT INTO "Voucher" (id, uid, "ubNumber", "subAgentId", status, pool, "createdAt", "updatedAt")
+        VALUES ('tv_hijack', 'uid_tv_hijack', 'UB-T999002', 'tsa_xagent_A', 'PENDING_REVIEW', 'UB', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING;
+    cleanup_sql: |
+      DELETE FROM "Voucher" WHERE id='tv_hijack';
+      DELETE FROM "SubAgent" WHERE id='tsa_xagent_A';
+  inputs:
+    - text: ""
+      media: ["cross-agent/UB-T999002-voucher.pdf"]
+  expect:
+    db:
+      vouchers_owned_by_other_agent: 1
+    trace:
+      requires_l1_count: 1
+
+- id: blacklisted-passport
+  tags: [escalation]
+  description: A passport on the blacklist → screening_status=FLAGGED, requires_l1.
+  setup:
+    sql: |
+      INSERT INTO "Blacklist" ("id", "passportNumber", reason, "addedBy", "createdAt")
+      VALUES ('tbl_AB1234567', 'AB1234567', 'test', 'system', NOW())
+      ON CONFLICT ("passportNumber") DO NOTHING;
+    cleanup_sql: |
+      DELETE FROM "Blacklist" WHERE "passportNumber"='AB1234567';
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "blacklist/AB1234567.jpg"
+  expect:
+    db:
+      passports_flagged: 1
+    trace:
+      requires_l1_count: 1
+
+- id: all-unreadable
+  tags: [robustness]
+  description: Whole burst unreadable → recover_node fixed apology.
+  inputs:
+    - text: ""
+      media:
+        - "corrupt/blank.jpg"
+        - "corrupt/blank2.jpg"
+  expect:
+    reply:
+      count: 1
+      tone_judge: "apologizes for unreadable images, asks for clearer photos, English"
+
+- id: passport-empty-pno-after-strip
+  tags: [robustness]
+  description: OCR returns whitespace-only passport_number → drops cleanly.
+  inputs:
+    - text: ""
+      media: ["edge/passport-empty-pno.jpg"]
+  expect:
+    db:
+      passports_count: 0
+      passports_drafts: 0
+    reply:
+      count: 1
+
+- id: whitespace-pno-mismatch
+  tags: [regression]
+  description: Voucher lists 'AB1234567', passport OCRs as ' ab1234567 '. Normalized match works.
+  inputs:
+    - text: ""
+      media:
+        - "edge/voucher-AB1234567.pdf"
+        - "edge/passport-AB1234567-padded.jpg"
+  expect:
+    db:
+      passports_count: 1
+      passports_drafts: 0
+
+# ============================================================ STATUS QUERIES
+
+- id: own-ub-status
+  tags: [status-query]
+  description: User asks about their own UB after sending it earlier.
+  inputs:
+    - text: ""
+      media: ["agent_A/voucher.pdf"]
+    - delay_ms: 60000   # let turn 1 fully complete before turn 2 arrives
+    - text: "any update on UB-181535?"
+  expect:
+    reply:
+      count: 2
+      language: english
+      must_mention_ubs: ["UB-181535"]
+      tone_judge: "answers the status question with saved/expected/missing counts in plain English"
+
+- id: foreign-ub-privacy-gate
+  tags: [status-query, privacy]
+  description: User asks about a UB that belongs to another sub-agent.
+  setup:
+    sql: |
+      INSERT INTO "SubAgent" (id, name, "contactName", phone, city, status, "createdAt")
+        VALUES ('tsa_other_priv', 'other_priv', 'Test', '+92otherpriv', 'Karachi', 'ACTIVE', NOW())
+        ON CONFLICT (id) DO NOTHING;
+      INSERT INTO "Voucher" (id, uid, "ubNumber", "subAgentId", status, pool, "familyHead", "createdAt", "updatedAt")
+        VALUES ('tv_priv', 'uid_tv_priv', 'UB-T800001', 'tsa_other_priv', 'PENDING_REVIEW', 'UB', 'Sumaira Bibi', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING;
+    cleanup_sql: |
+      DELETE FROM "Voucher" WHERE id='tv_priv';
+      DELETE FROM "SubAgent" WHERE id='tsa_other_priv';
+  inputs:
+    - text: "status of UB-T800001?"
+  expect:
+    reply:
+      count: 1
+      must_not_contain: ["Sumaira Bibi"]
+      tone_judge: "neutrally says that UB isn't on this account, does NOT confirm or deny family-head details"
+
+- id: nonexistent-ub
+  tags: [status-query]
+  description: User asks about a UB that doesn't exist.
+  inputs:
+    - text: "status of UB-999999?"
+  expect:
+    reply:
+      count: 1
+      tone_judge: "says the UB isn't in the system, English"
+
+- id: multi-ub-question
+  tags: [status-query]
+  description: User asks about multiple UBs in one message.
+  inputs:
+    - text: "what's status of UB-100344 and UB-100712?"
+  expect:
+    reply:
+      count: 1
+      tone_judge: "addresses both UBs, neutral if not found"
+
+- id: ub-borderline-4-digits
+  tags: [status-query, regression]
+  description: "UB-1234 (4 digits) must still be recognized as a UB query."
+  inputs:
+    - text: "any update on UB-1234?"
+  expect:
+    reply:
+      count: 1
+
+- id: status-query-no-number
+  tags: [status-query]
+  description: User asks 'any update?' without a UB.
+  inputs:
+    - text: "any update?"
+  expect:
+    reply:
+      count: 1
+
+- id: details-followup
+  tags: [status-query]
+  description: User asks for more details after a status answer.
+  inputs:
+    - text: "status of UB-100344?"
+    - delay_ms: 8000
+    - text: "who is missing?"
+  expect:
+    reply:
+      count: 2
+
+# ============================================================ GREETINGS / LANGUAGE
+
+- id: first-hi-greets
+  tags: [greeting, language]
+  description: Brand-new conversation, user says hi. Bot greets back.
+  inputs:
+    - text: "hi"
+  expect:
+    reply:
+      count: 1
+      language: english
+      tone_judge: "warm Salam/Hi greeting, asks how to help, no em-dashes (—), no emojis"
+
+- id: repeated-hi-no-greet
+  tags: [greeting]
+  description: Second 'hi' should NOT trigger another greeting.
+  inputs:
+    - text: "hi"
+    - delay_ms: 6000
+    - text: "hi"
+  expect:
+    reply:
+      count: 2
+      tone_judge: "second reply does NOT open with a greeting; just acknowledges or asks how to help concisely"
+
+- id: roman-urdu-input-roman-urdu-reply
+  tags: [language]
+  description: User writes in Roman Urdu; bot replies in Roman Urdu.
+  inputs:
+    - text: "passport bhej dia, kab tak save ho jaye ga?"
+  expect:
+    reply:
+      count: 1
+      language: roman_urdu
+
+- id: english-only-no-roman-urdu
+  tags: [language, regression]
+  description: Media-only burst from a brand-new conversation → English reply, NO Roman Urdu.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+  expect:
+    reply:
+      count: 1
+      language: english
+      must_not_contain: ["ho gaye", "ho gaya", "ke against", "kar diya", "shukria"]
+
+- id: mid-conversation-language-switch
+  tags: [language]
+  description: User switches from English to Roman Urdu mid-thread.
+  inputs:
+    - text: "hi"
+    - delay_ms: 6000
+    - text: "passport bhejna chahta hu"
+  expect:
+    reply:
+      count: 2
+
+- id: pure-urdu-script
+  tags: [language]
+  description: User writes in pure Urdu script.
+  inputs:
+    - text: "السلام علیکم، پاسپورٹ بھیج رہا ہوں"
+  expect:
+    reply:
+      count: 1
+      language: urdu
+
+- id: emoji-only-input
+  tags: [robustness]
+  description: User sends only an emoji. Bot acknowledges sensibly.
+  inputs:
+    - text: "👍"
+  expect:
+    reply:
+      count: 1
+
+- id: digits-only-input
+  tags: [robustness]
+  description: User sends only digits. Should not be misread as a UB.
+  inputs:
+    - text: "12345"
+  expect:
+    reply:
+      count: 1
+
+- id: single-word-ok
+  tags: [robustness]
+  description: User says 'ok'. Light acknowledgment.
+  inputs:
+    - text: "ok"
+  expect:
+    reply:
+      count: 1
+      tone_judge: "very short ack, no greeting, no question"
+
+- id: first-interaction-media-then-hi
+  tags: [greeting, language]
+  description: First media burst (no greeting), then user says hi → greet on the hi.
+  inputs:
+    - text: ""
+      media: ["agent_A/p1_FY1755541_mahboob.jpg"]
+    - delay_ms: 18000
+    - text: "hi"
+  expect:
+    reply:
+      count: 2
+
+# ============================================================ DUPLICATES
+
+- id: resend-identical-burst-all-duplicates
+  tags: [duplicates]
+  description: User resends the exact same burst → all duplicates.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+    - delay_ms: 18000
+    - text: ""
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+  expect:
+    reply:
+      count: 2
+      tone_judge: "second reply uses 'already on UB-X, nothing new to add' phrasing, NOT 'no new additions this time'"
+
+- id: mixed-duplicates-and-new
+  tags: [duplicates]
+  description: Some duplicates + some genuinely new passports.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+    - delay_ms: 18000
+    - text: ""
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p3_BP0138231_rumaisa.jpg"
+  expect:
+    reply:
+      count: 2
+      tone_judge: "second reply mentions the new save, doesn't double-count the duplicate"
+
+- id: duplicate-burst-phrasing
+  tags: [duplicates, regression]
+  description: Phrasing must be 'already on UB-X', not 'no new additions'.
+  inputs:
+    - text: ""
+      media:
+        - "agent_A/voucher.pdf"
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+    - delay_ms: 18000
+    - text: ""
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+  expect:
+    reply:
+      count: 2
+      must_not_contain: ["no new additions", "already saved previously"]
+
+# ============================================================ EDGE CASES / ROBUSTNESS
+
+- id: send-once-guard-second-call-blocked
+  tags: [edge]
+  description: The reply node tries to send_whatsapp twice; second attempt is blocked.
+  inputs:
+    - text: "salam, multi reply test"
+  expect:
+    trace:
+      send_whatsapp_count: 1
+
+- id: adaptive-debounce-4s-pause-no-split
+  tags: [edge, debounce]
+  description: 5 media items 4s apart → ONE turn (media debounce is 15s).
+  inputs:
+    - text: ""
+      media: ["agent_A/p1_FY1755541_mahboob.jpg"]
+    - delay_ms: 4000
+    - text: ""
+      media: ["agent_A/p2_JT3963061_sakina.jpg"]
+    - delay_ms: 4000
+    - text: ""
+      media: ["agent_A/p3_BP0138231_rumaisa.jpg"]
+    - delay_ms: 4000
+    - text: ""
+      media: ["agent_A/p4_QQ4912891_shahnaz.jpg"]
+    - delay_ms: 4000
+    - text: ""
+      media: ["agent_A/p5_TK5163901_mehnaz.jpg"]
+  expect:
+    reply:
+      count: 1
+
+- id: adaptive-debounce-20s-pause-splits
+  tags: [edge, debounce]
+  description: 20s pause between media items → splits into TWO turns.
+  inputs:
+    - text: ""
+      media: ["agent_A/p1_FY1755541_mahboob.jpg"]
+    - delay_ms: 20000
+    - text: ""
+      media: ["agent_A/p2_JT3963061_sakina.jpg"]
+  expect:
+    reply:
+      count: 2
+
+- id: text-and-media-same-message
+  tags: [edge]
+  description: Single inbound row with BOTH a text body and media.
+  inputs:
+    - text: "yeh sab passports hain"
+      media:
+        - "agent_A/p1_FY1755541_mahboob.jpg"
+        - "agent_A/p2_JT3963061_sakina.jpg"
+  expect:
+    reply:
+      count: 1
+
+- id: conversation-disabled-mid-burst
+  tags: [edge]
+  description: botEnabled flips to false mid-burst; agent should NOT process.
+  setup:
+    sql: |
+      -- handled by runner: we'll flip after first message via cleanup hook.
+  inputs:
+    - text: "hi"
+  expect:
+    reply:
+      count: 1   # still one reply for the initial; the runtime check is separate
+
+- id: agent-disabled-via-env
+  tags: [edge]
+  skip: true   # requires AGENT_DRAIN_DISABLED toggle outside scenario scope
+  description: AGENT_DRAIN_DISABLED=1 → no draining; messages stay unprocessed.
+  inputs:
+    - text: "hi"
+
+- id: timeout-then-success-retry
+  tags: [edge]
+  skip: true   # requires AGENT_TURN_TIMEOUT_S env override mid-suite
+  description: First turn times out, retry succeeds.
+
+- id: timeout-retry-exhausted-escalates
+  tags: [edge]
+  skip: true
+  description: AGENT_TURN_TIMEOUT_S=2; retries exhausted; conversation escalates.
+
+- id: agent-invoke-raises-not-timeout
+  tags: [edge]
+  skip: true
+  description: agent.invoke raises a non-Timeout exception; trace records error_kind=exception.
+
+- id: legacy-mediaUrl-set-media-null
+  tags: [edge, regression]
+  description: Legacy Message row with mediaUrl set but media=NULL still routes correctly.
+  setup:
+    sql: |
+      -- runner can't easily emit this from inputs; skip by default.
+  skip: true
+
+- id: literal-no-text-as-user-input
+  tags: [edge]
+  description: User sends literally '(no text)' as their text. Should not be treated as empty.
+  inputs:
+    - text: "(no text)"
+  expect:
+    reply:
+      count: 1
+
+- id: empty-burst-body
+  tags: [edge]
+  description: A single Message with body='' and media=NULL (rare/buggy webhook).
+  inputs:
+    - text: ""
+  expect:
+    reply:
+      count: 1
+
+- id: concurrent-turn-same-cid
+  tags: [edge]
+  skip: true
+  description: Two /turn calls fired simultaneously; advisory lock serializes.
+
+- id: pm2-reload-mid-burst-replay-idempotency
+  tags: [edge]
+  skip: true
+  description: Reload pm2 mid-turn; B7 idempotency check prevents double-send.
+
+# ============================================================ GROUPING (dashboard-side)
+
+- id: group-cap-at-50
+  kind: grouping
+  tags: [grouping]
+  description: 50 passports across 5 vouchers → 1 group of 50.
+  seed:
+    voucher_count: 5
+    passports_per_voucher: [10, 10, 10, 10, 10]
+    pool: UB
+  expect:
+    group_count: 1
+    max_per_group: 50
+    min_passport_total: 50
+
+- id: group-cap-overflow
+  kind: grouping
+  tags: [grouping]
+  description: 60 passports across 6 vouchers → 2 groups split correctly.
+  seed:
+    voucher_count: 6
+    passports_per_voucher: [10, 10, 10, 10, 10, 10]
+    pool: UB
+  expect:
+    group_count: 2
+    max_per_group: 50
+    min_passport_total: 60
+
+- id: group-mixed-pools
+  kind: grouping
+  tags: [grouping]
+  description: Vouchers across two pools must not mix.
+  seed:
+    voucher_count: 4
+    passports_per_voucher: [20, 20, 20, 20]
+    pool: UB   # NOTE: runner currently seeds a single pool. Extend seed schema if mixing needed.
+  expect:
+    pools: [UB]
+
+- id: group-skips-flagged
+  kind: grouping
+  tags: [grouping]
+  description: 30 ready + 10 FLAGGED → only the 30 group.
+  seed:
+    voucher_count: 4
+    passports_per_voucher: [10, 10, 10, 10]
+    flagged_per_voucher: [0, 0, 0, 10]
+    pool: UB
+  expect:
+    group_count: 1
+    max_per_group: 50
+    min_passport_total: 30
+
+- id: group-single-voucher-over-50
+  kind: grouping
+  tags: [grouping]
+  description: |
+    One voucher with 60 passports must NOT be packed into a group — IATA
+    cap is 50. formGroupsWithStrategy returns it via `needsManualSplit` so
+    the operator can split it by hand before re-forming.
+  seed:
+    voucher_count: 1
+    passports_per_voucher: [60]
+    pool: UB
+  expect:
+    group_count: 0
+    max_per_group: 50
+
+- id: group-bin-packing-efficiency
+  kind: grouping
+  tags: [grouping]
+  description: Vouchers 30+25+20+10 → bin-pack to 30+20=50 and 25+10=35.
+  seed:
+    voucher_count: 4
+    passports_per_voucher: [30, 25, 20, 10]
+    pool: UB
+  expect:
+    group_count: 2
+    max_per_group: 50
+    min_passport_total: 85
+
+- id: group-skips-unpaid
+  kind: grouping
+  tags: [grouping, payment]
+  description: |
+    Vouchers where amountReceived < totalAmount must NOT be grouped.
+    loadEligibleVouchers excludes them. Operator collects payment first.
+  seed:
+    voucher_count: 2
+    passports_per_voucher: [10, 12]
+    pool: UB
+    total_amount_per_voucher: [4000, 5000]
+    paid_per_voucher: [0, 2000]   # one fully unpaid, one half-paid
+  expect:
+    group_count: 0
+
+- id: group-vip-overrides-unpaid
+  kind: grouping
+  tags: [grouping, payment]
+  description: |
+    VIP sub-agent's unpaid voucher SHOULD still be grouped — the loadEligibleVouchers
+    filter is `paid >= total OR isVip`. Used for trusted agents who pay later.
+  seed:
+    voucher_count: 1
+    passports_per_voucher: [15]
+    pool: UB
+    total_amount_per_voucher: [4500]
+    paid_per_voucher: [0]
+    sub_agent_vip: true
+  expect:
+    group_count: 1
+    max_per_group: 50
+    min_passport_total: 15
+
+- id: group-paid-in-full-included
+  kind: grouping
+  tags: [grouping, payment]
+  description: |
+    Voucher where paid == total is grouped. Confirms the boundary case
+    of the >= filter (not just exact zero/zero).
+  seed:
+    voucher_count: 2
+    passports_per_voucher: [8, 12]
+    pool: UB
+    total_amount_per_voucher: [3500, 5400]
+    paid_per_voucher: [3500, 5400]   # paid in full
+  expect:
+    group_count: 1
+    max_per_group: 50
+    min_passport_total: 20

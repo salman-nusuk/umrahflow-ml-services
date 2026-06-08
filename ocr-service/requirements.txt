@@ -1,0 +1,9 @@
+fastmrz>=2.1.2
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.20
+opencv-python-headless>=4.10
+pillow>=10
+numpy>=2
+requests>=2.32
+pypdfium2>=4.30

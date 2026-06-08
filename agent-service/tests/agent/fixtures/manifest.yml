@@ -1,0 +1,86 @@
+# Fixture ground truth.
+# Verified by reading each PDF + JPG by hand on 2026-05-02.
+# Filenames encode (passport_number, given_name) so the runner can assert
+# routing without re-OCR'ing each scenario.
+#
+# Privacy: these contain real Pakistani CNICs + passports. The whole
+# `fixtures/` tree is gitignored. Never commit.
+
+agent_A:
+  source_path: "/Users/afaqahmad/Downloads/ses 11111/AGOG/New folder"
+  voucher: "voucher.pdf"
+  ub_number: "UB-181535"
+  family_head: "Mahboob Alam Muhammad Yaqoob"
+  voucher_date: "14/03/26"
+  package: "14 SEI (39/44/45) 1447"
+  pax_count: 5
+  expected_mutamers:
+    - passport: FY1755541
+      name: "Mahboob Alam Muhammad Yaqoob"
+      gender: M
+      pax_type: Adult
+      file: p1_FY1755541_mahboob.jpg
+    - passport: JT3963061
+      name: "Sakina Begum"
+      gender: F
+      pax_type: Adult
+      file: p2_JT3963061_sakina.jpg
+    - passport: BP0138231
+      name: "Rumaisa Mahboob"
+      gender: F
+      pax_type: Child
+      file: p3_BP0138231_rumaisa.jpg
+    - passport: QQ4912891
+      name: "Shahnaz Kousar"
+      gender: F
+      pax_type: Adult
+      file: p4_QQ4912891_shahnaz.jpg
+    - passport: TK5163901
+      name: "Mehnaz Shakoor"
+      gender: F
+      pax_type: Adult
+      file: p5_TK5163901_mehnaz.jpg
+
+agent_B:
+  source_path: "/Users/afaqahmad/Downloads/ses 11111/BAAB E KABA"
+  voucher: "voucher.pdf"
+  ub_number: "UB-181649"
+  family_head: "Rimsha Waqas"
+  voucher_date: "16/03/26"
+  package: "17 SEI (39/44/45) 1447"
+  pax_count: 5
+  notes: |
+    Passport p2 (Dua Fatima, SQ8458391) is an Infant. Voucher marks Visa=No
+    for that row. Useful for testing "infant in burst" handling.
+  expected_mutamers:
+    - passport: AK5099013
+      name: "Anwar Zeb Raheem Gul"
+      gender: M
+      pax_type: Adult
+      file: p1_AK5099013_anwar.jpg
+    - passport: SQ8458391
+      name: "Dua Fatima"
+      gender: F
+      pax_type: Infant
+      file: p2_SQ8458391_dua.jpg
+    - passport: BL5931731
+      name: "Ayesha Zaib"
+      gender: F
+      pax_type: Adult
+      file: p3_BL5931731_ayesha.jpg
+    - passport: EM6311161
+      name: "Rimsha Waqas"
+      gender: F
+      pax_type: Adult
+      file: p4_EM6311161_rimsha.jpg
+    - passport: QW3959892
+      name: "Naseem Begum"
+      gender: F
+      pax_type: Adult
+      file: p5_QW3959892_naseem.jpg
+
+# Bonus fixtures available in the source corpus we did NOT pick:
+# - AGOG/Hotel Voucher.pdf (UB-181396, 2 mutamers Zaib Un Nisa + Nazar
+#   Muhammad Saif). Useful as a small 2-passport burst when needed.
+# - 50+ other folders under ~/Downloads/ses 11111/. Each is a real
+#   (voucher + passports) bundle if we want to scale scenario coverage.
