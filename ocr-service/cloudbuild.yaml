@@ -1,6 +1,9 @@
 steps:
-  # Build the Docker image, tagging it with both the commit SHA and `latest`
+  # Build the Docker image, tagging it with both the commit SHA and `latest`.
+  # `dir` is required: a trigger checks out the repo ROOT to /workspace, so we
+  # must cd into the service folder where the Dockerfile lives.
   - name: 'gcr.io/cloud-builders/docker'
+    dir: 'ocr-service'
     args:
       - 'build'
       - '-t'
