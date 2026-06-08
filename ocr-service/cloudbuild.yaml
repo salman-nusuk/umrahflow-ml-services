@@ -1,0 +1,60 @@
+steps:
+  # Build the Docker image, tagging it with both the commit SHA and `latest`
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ocr-service:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/ocr-service:latest'
+      - '.'
+
+  # Deploy to Cloud Run (pin to the immutable SHA tag)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ocr-service'
+      - '--image=gcr.io/$PROJECT_ID/ocr-service:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--cpu=1'                 # ✅ 1, 2, 4, or 8
+      - '--memory=2Gi'           # ✅ e.g. 512Mi, 1Gi, 2Gi, 4Gi
+      # Stateless request/response service: let Cloud Run autoscale instances.
+      # Lower concurrency than the default 80 because each request does CPU-bound
+      # image work; Cloud Run adds instances under load.
+      - '--concurrency=10'
+      - '--max-instances=5'
+      # Only secret the code needs
+      - '--set-secrets'
+      - 'OPENAI_API_KEY=OPENAI_API_KEY:latest'
+
+  # Prune leftover untagged image digests so registry history doesn't pile up
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        echo "Pruning untagged images for gcr.io/$PROJECT_ID/ocr-service ..."
+        gcloud artifacts docker images list \
+          gcr.io/$PROJECT_ID/ocr-service \
+          --include-tags \
+          --filter='-tags:*' \
+          --format='value(version)' | while read -r digest; do
+            [ -z "$digest" ] && continue
+            echo "Deleting untagged digest: $digest"
+            gcloud artifacts docker images delete \
+              "gcr.io/$PROJECT_ID/ocr-service@$digest" \
+              --delete-tags --quiet || true
+          done
+
+# Record the produced images with Cloud Build (also pushes them)
+images:
+  - 'gcr.io/$PROJECT_ID/ocr-service:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/ocr-service:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY  # or NONE, depending on your needs

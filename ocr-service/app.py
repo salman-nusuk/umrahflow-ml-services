@@ -4,23 +4,14 @@ POST /ocr  multipart with `file` field (image)            → JSON
 POST /ocr  JSON {"url": "..."}                            → JSON
 GET  /healthz                                             → {"ok": true}
 """
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
+
 import asyncio, os, tempfile, time, urllib.request, json
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-
-# load project-root .env (one level up from this service folder)
-ENV_PATH = os.environ.get(
-    "UMRAHFLOW_ENV_PATH",
-    os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".env")),
-)
-if os.path.exists(ENV_PATH):
-    for line in open(ENV_PATH):
-        line = line.strip()
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            v = v.strip().strip('"').strip("'")
-            os.environ.setdefault(k, v)
 
 from run_pipeline_openai import process
 from process_pdf import process_pdf
